@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Robot Control</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: monospace; background: #1a1a1a; color: #eee;
+            padding: 8px; display: flex; flex-direction: column;
+            height: 100vh; overflow: hidden;
+        }
+
+        /* ── Status bar ── */
+        #status-bar {
+            flex-shrink: 0;
+            display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+            background: #2a2a2a; padding: 8px 12px; margin-bottom: 8px;
+            border: 1px solid #444;
+        }
+        #status-bar .field { font-size: 13px; }
+        #status-bar .label { color: #666; }
+        #status-bar .sep { align-self: stretch; width: 1px; background: #444; margin: 0 2px; }
+        .ok   { color: #2ecc71; font-weight: bold; }
+        .bad  { color: #e74c3c; font-weight: bold; }
+        .warn { color: #f39c12; font-weight: bold; }
+
+        /* ── Status pills ── */
+        .pill { display: inline-block; padding: 1px 8px; border-radius: 10px;
+            font-size: 11px; font-weight: bold; background: #333; color: #bbb; }
+        .pill.ok   { background: #16361b; color: #2ecc71; }
+        .pill.warn { background: #3e3210; color: #f39c12; }
+        .pill.bad  { background: #3e1717; color: #e74c3c; }
+
+        /* ── Limit-switch chips ── */
+        #status-bar .lim { display: inline-block; padding: 1px 5px; margin: 0 1px;
+            border-radius: 3px; font-size: 11px; font-weight: bold; background: #333; color: #666; }
+        #status-bar .lim.on { background: #3e3210; color: #f39c12; }
+
+        /* ── Next-step guide banner ── */
+        #next-step {
+            flex-shrink: 0; display: flex; align-items: center; gap: 12px;
+            padding: 10px 14px; margin-bottom: 8px;
+            border: 1px solid #444; border-left-width: 5px;
+            font-size: 14px; font-weight: bold;
+        }
+        #next-step button {
+            margin-left: auto; flex-shrink: 0; padding: 6px 14px;
+            border-radius: 3px; color: #fff; background: #2471a3;
+        }
+        .guide-info { background: #15233a; border-left-color: #2980b9; color: #9cc7e8; }
+        .guide-warn { background: #3a2e10; border-left-color: #f39c12; color: #f1c477; }
+        .guide-ok   { background: #163020; border-left-color: #2ecc71; color: #8fe0ac; }
+        .guide-bad  { background: #3a1515; border-left-color: #e74c3c; color: #f0a39a; }
+
+        /* ── Two-column layout ── */
+        #main { flex: 1; min-height: 0; display: flex; gap: 8px; align-items: stretch; }
+
+        /* ── Camera column ── */
+        #camera-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        #feed-wrap  { flex: 1; min-height: 0; border: 1px solid #444; background: #000; overflow: hidden; position: relative; }
+        #feed       { width: 100%; height: 100%; object-fit: contain; display: block; }
+        .hint       { flex-shrink: 0; font-size: 10px; color: #444; margin-top: 3px; }
+        #no-camera-banner {
+            display: none; position: absolute; inset: 0; z-index: 10;
+            background: #1a0000; border: 3px solid #c0392b;
+            flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+            color: #e74c3c; text-align: center;
+        }
+        #no-camera-banner .nc-icon  { font-size: 52px; }
+        #no-camera-banner .nc-title { font-size: 18px; font-weight: bold; }
+        #no-camera-banner .nc-hint  { font-size: 12px; color: #a93226; margin-top: 4px; }
+
+        /* ── Controls column ── */
+        #controls-col { width: 340px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; }
+
+        /* ── Tabs ── */
+        .tabs { display: flex; gap: 4px; flex-shrink: 0; margin-bottom: 8px; }
+        .tab {
+            flex: 1; background: #222; color: #888; border: 1px solid #3a3a3a;
+            padding: 9px 4px; font-size: 12px; font-weight: bold; position: relative;
+        }
+        .tab:hover { background: #2a2a2a; color: #bbb; }
+        .tab.active { background: #2a2a2a; color: #fff; border-bottom: 2px solid #2980b9; }
+        #btn-flip.active { background: #2980b9; color: #fff; border-color: #2980b9; }
+        .badge {
+            display: none; background: #e74c3c; color: #fff; border-radius: 8px;
+            font-size: 9px; padding: 0 5px; margin-left: 3px; vertical-align: middle;
+        }
+        #tab-panels { flex: 1; min-height: 0; overflow-y: auto; }
+
+        /* ── Step-mode approval bar ── */
+        #step-bar {
+            display: flex; align-items: center; gap: 10px;
+            background: #2a2418; border: 2px solid #e6a817; border-radius: 4px;
+            padding: 8px 12px; margin: 6px 0; animation: stepPulse 1.4s ease-in-out infinite;
+        }
+        @keyframes stepPulse { 0%,100% { border-color:#e6a817; } 50% { border-color:#8a6510; } }
+        #step-icon { font-size: 16px; }
+        #step-desc { font-size: 13px; font-weight: bold; color: #ffd98a; font-family: 'Consolas', monospace; }
+        #step-bar button {
+            padding: 7px 12px; font-size: 12px; font-weight: bold; border: none;
+            border-radius: 3px; cursor: pointer; color: #fff;
+        }
+        #step-approve { background: #27ae60; }
+        #step-resume  { background: #2980b9; }
+        #step-abort   { background: #c0392b; }
+        .step-toggle {
+            display: flex; align-items: center; gap: 6px; margin-top: 8px;
+            font-size: 12px; color: #ccc; cursor: pointer;
+        }
+
+        /* ── Debug console ── */
+        .dbg-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .dbg-autoscroll { font-size: 11px; color: #aaa; display: flex; align-items: center; gap: 4px; }
+        #dbg-console {
+            background: #131313; border: 1px solid #333; border-radius: 3px;
+            padding: 6px 8px; height: 420px; max-height: 60vh; overflow-y: auto;
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 11px;
+            line-height: 1.5; color: #b8b8b8; white-space: pre-wrap; word-break: break-word;
+        }
+        #dbg-console .dbg-row { padding: 0; }
+        #dbg-console .dbg-time { color: #6a6a6a; }
+        #dbg-console .dbg-state { color: #5dade2; }
+        #dbg-console .dbg-count { color: #e67e22; font-weight: bold; }
+        #dbg-console .dbg-stall { background: rgba(230,126,34,0.14); }
+        #dbg-console .dbg-abort { background: rgba(231,76,60,0.18); color: #ff9b8f; }
+        #dbg-console .dbg-empty { color: #666; font-style: italic; }
+
+        /* ── Sections / cards ── */
+        .section {
+            background: #2a2a2a; border: 1px solid #3a3a3a;
+            padding: 10px 12px; margin-bottom: 8px;
+        }
+        .section h3 {
+            font-size: 11px; text-transform: uppercase; color: #aaa;
+            letter-spacing: 1px; border-bottom: 1px solid #333;
+            padding-bottom: 6px; margin-bottom: 8px;
+        }
+        .card-sub { font-size: 11px; color: #777; margin: -2px 0 10px; line-height: 1.4; }
+        /* Help chips: tuck each card's explanatory blurb behind a ? on its heading,
+           so the sidebar stays uncluttered. Click the ? to reveal it inline. */
+        .help-chip {
+            float: right; cursor: pointer; user-select: none;
+            min-width: 16px; height: 16px; line-height: 15px; padding: 0 4px;
+            text-align: center; border-radius: 8px; border: 1px solid #4a5a6a;
+            background: #333; color: #7fb3d5; font-size: 10px; font-weight: bold;
+            letter-spacing: 0; text-transform: none;
+        }
+        .help-chip:hover, .help-chip.open { background: #2980b9; color: #fff; border-color: #2980b9; }
+        .card-sub.collapsed { display: none; }
+        .collapse-toggle { font-size: 11px; color: #7fb3d5; cursor: pointer; margin-top: 10px; user-select: none; }
+        .collapse-toggle:hover { color: #aed6f1; }
+
+        /* ── Buttons ── */
+        button {
+            font-family: monospace; font-weight: bold; font-size: 13px;
+            border: none; border-radius: 3px; cursor: pointer; padding: 6px 12px;
+        }
+        button:active  { filter: brightness(0.8); }
+        button:disabled { opacity: 0.25; cursor: not-allowed; }
+        .btn-home  { background: #2471a3; color: #fff; }
+        .btn-estop { background: #c0392b; color: #fff; font-size: 15px; padding: 8px 20px; }
+        .btn-help  { background: #555; color: #fff; }
+        .btn-go    { background: #1e8449; color: #fff; width: 100%; margin-top: 8px; padding: 8px; }
+        .btn-act   { background: #117a65; color: #fff; flex: 1; padding: 7px; }
+        .btn-warn  { background: #b9440b; color: #fff; flex: 1; padding: 7px; }
+        .btn-slot-pu { background: #1a4a6e; color: #cde; font-size: 11px; padding: 5px 0; width: 74px; }
+        .btn-slot-sd { background: #3d1a5a; color: #dce; font-size: 11px; padding: 5px 0; width: 74px; }
+        .btn-jog   { background: #333; color: #ddd; border: 1px solid #555; }
+        .btn-jog:hover:not(:disabled) { background: #444; }
+        .btn-set  { background: #2c3e50; color: #aaa; border: 1px solid #555; font-size: 12px; padding: 4px 10px; }
+
+        /* ── Help modal ── */
+        #help-overlay {
+            display: none; position: fixed; inset: 0; z-index: 100;
+            background: rgba(0,0,0,0.78); padding: 4vh 4vw;
+        }
+        #help-modal {
+            background: #1f1f1f; border: 1px solid #555; border-radius: 4px;
+            max-width: 820px; margin: 0 auto; height: 92vh; overflow-y: auto;
+            padding: 20px 26px; line-height: 1.55; font-size: 13px; color: #ddd;
+        }
+        #help-modal h2 { font-size: 18px; color: #fff; margin-bottom: 4px; }
+        #help-modal h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px;
+            color: #5dade2; margin: 18px 0 6px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        #help-modal p, #help-modal li { color: #bbb; }
+        #help-modal ol, #help-modal ul { margin: 4px 0 4px 20px; }
+        #help-modal code { background: #2a2a2a; padding: 1px 5px; border-radius: 3px; color: #f0c674; }
+        #help-modal .legend span { font-weight: bold; }
+        #help-close { float: right; background: #c0392b; color: #fff; }
+
+        /* ── Scoop Z heights ── */
+        .zh-row { border: 1px solid #333; border-radius: 4px; padding: 7px 8px; margin-bottom: 7px; }
+        .zh-head { display: flex; align-items: center; gap: 7px; }
+        .zh-name { flex: 1; font-size: 12px; color: #ddd; }
+        .zh-head input[type=number] { width: 64px; background: #2a2a2a; color: #eee;
+            border: 1px solid #555; padding: 3px 5px; border-radius: 3px; font-family: monospace; }
+        .zh-unit { font-size: 11px; color: #666; }
+        .zh-desc { font-size: 11px; color: #777; margin-top: 4px; }
+        .btn-measure { background: #2471a3; color: #fff; font-size: 11px; padding: 4px 9px; white-space: nowrap; }
+
+        /* ── Z-measure wizard modal ── */
+        #zmeasure-overlay {
+            display: none; position: fixed; inset: 0; z-index: 110;
+            background: rgba(0,0,0,0.82); padding: 8vh 4vw;
+        }
+        #zmeasure-modal {
+            background: #1f1f1f; border: 1px solid #555; border-radius: 5px;
+            max-width: 460px; margin: 0 auto; padding: 18px 22px; color: #ddd;
+        }
+        #zmeasure-modal h2 { font-size: 16px; color: #fff; margin-bottom: 8px; }
+        #zm-desc { font-size: 13px; color: #bbb; line-height: 1.5; margin-bottom: 12px; }
+        #zm-timer { font-size: 40px; font-weight: bold; font-variant-numeric: tabular-nums;
+            text-align: center; color: #5dade2; margin: 6px 0 14px; letter-spacing: 1px; }
+        #zm-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+        #zm-buttons button { flex: 1; min-width: 120px; padding: 9px; font-size: 13px; }
+        .zm-prep   { background: #555; color: #fff; }
+        .zm-go     { background: #1e8449; color: #fff; }
+        .zm-cap    { background: #c0392b; color: #fff; }
+        .zm-use    { background: #1e8449; color: #fff; }
+        .zm-cancel { background: #444; color: #ccc; margin-top: 12px; width: 100%; padding: 7px; font-size: 12px; }
+        .zm-note   { font-size: 11px; color: #e0a030; margin-bottom: 10px; }
+
+        /* ── Calibration ── */
+        .cal-block { border: 1px solid #333; padding: 8px; margin-bottom: 8px; }
+        .cal-block .cal-title { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+        .cal-status { font-size: 11px; margin-top: 6px; letter-spacing: 0.5px; }
+        .mlabel-row { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #888; padding: 3px 0; }
+        .mlabel-row input[type=text] { background: #2a2a2a; color: #eee; border: 1px solid #555;
+            padding: 3px 5px; border-radius: 3px; font-family: monospace; flex: 1; min-width: 0; }
+        .slot-id-row { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #666; padding: 4px 0; border-bottom: 1px solid #2a2a2a; }
+        .slot-id-row:last-child { border-bottom: none; }
+        .slot-id-label { flex: 1; }
+
+        /* ── Find & Align ── */
+        .align-row   { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #888; }
+        .align-errs  { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+        .err-block   { display: flex; flex-direction: column; gap: 1px; }
+        .err-label   { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+        .err-val     { font-size: 22px; font-weight: bold; font-variant-numeric: tabular-nums; min-width: 48px; }
+        .err-unit    { font-size: 10px; color: #555; }
+        .tilt-warn   { font-size: 11px; color: #e74c3c; margin-top: 6px; font-weight: bold; }
+        .align-btns  { display: flex; gap: 6px; margin-top: 10px; }
+
+        /* ── Position Control ── */
+        .pos-row  { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 12px; color: #888; }
+        .pos-row:last-child { margin-bottom: 0; }
+        .pos-label { width: 36px; }
+        .pos-divider { height: 1px; background: #333; margin: 8px 0; }
+        /* Tuning settings: aligned columns so labels/inputs/buttons line up */
+        .pos-settings {
+            display: grid; align-items: center; gap: 7px 8px;
+            grid-template-columns: 72px 56px 64px auto 16px;
+        }
+        .pos-slabel { font-size: 12px; color: #888; white-space: nowrap; }
+        .pos-unit   { font-size: 11px; color: #666; white-space: nowrap; }
+        .pos-settings input[type=number] { width: 56px; }
+        .set-status { font-size: 13px; text-align: center; }
+        .set-status.ok   { color: #2ecc71; }
+        .set-status.warn { color: #f39c12; }
+
+        /* ── Slots ── */
+        .slot-row   { display: flex; align-items: center; padding: 7px 0; border-bottom: 1px solid #2f2f2f; }
+        .slot-row:last-child { border-bottom: none; }
+        .slot-label { flex: 1; font-size: 12px; }
+        .slot-name  { color: #ccc; }
+        .slot-pos   { color: #555; font-size: 11px; margin-left: 4px; }
+        .slot-btns  { display: flex; gap: 4px; }
+
+        /* ── Jog ── */
+        .jog-params { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: #888; }
+        .jog-controls { display: flex; gap: 16px; align-items: center; }
+        .jog-pad {
+            display: grid;
+            grid-template-columns: 44px 44px 44px;
+            grid-template-rows: 34px 34px 34px;
+            gap: 4px; width: fit-content;
+        }
+        .jog-pad button { width: 44px; height: 34px; padding: 0; font-size: 12px; }
+        .jog-center {
+            display: flex; align-items: center; justify-content: center;
+            background: #222; border: 1px solid #3a3a3a; border-radius: 3px;
+            font-size: 9px; color: #444; letter-spacing: 1px;
+        }
+        .jog-z-col { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+        .jog-z-col button { width: 60px; height: 34px; font-size: 12px; }
+        .jog-z-note { font-size: 10px; color: #444; line-height: 1.7; margin-top: 2px; }
+
+        /* ── Inputs ── */
+        input[type=number] {
+            background: #2a2a2a; color: #eee; border: 1px solid #555;
+            padding: 4px 6px; border-radius: 3px; font-family: monospace; width: 64px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- STATUS BAR -->
+<div id="status-bar">
+    <!-- Readiness — changes rarely -->
+    <div class="field"><span class="label">Arduino </span><span id="s-conn" class="pill">-</span></div>
+    <div class="field"><span class="label">Homed </span><span id="s-homed" class="pill">-</span></div>
+    <div class="field" title="Camera calibration: both pick-up and set-down profiles set?"><span class="label">Cal </span><span id="s-cal" class="pill">-</span></div>
+    <span class="sep"></span>
+    <!-- Live telemetry — changes constantly -->
+    <div class="field"><span class="label">State </span><span id="s-state" class="pill" title="">-</span></div>
+    <div class="field">
+        <span class="label">X </span><span id="s-x">-</span>
+        <span class="label"> Y </span><span id="s-y">-</span>
+        <span class="label"> Z </span><span id="s-z">-</span><span class="label">mm</span>
+    </div>
+    <div class="field" title="A move or Z pulse is in flight (cleared by the Arduino's DONE / Z DONE)"><span class="label">Motion </span><span id="s-motion" class="pill">-</span></div>
+    <div class="field" title="End-effector grip switch: HOLDING when a battery's weight is on the scoop"><span class="label">Grip </span><span id="s-grip" class="pill">-</span></div>
+    <div class="field" title="Gentle motion profile — accel/speed are reduced while carrying a battery so the ~30 kg load doesn't swing"><span class="label">Motion mode </span><span id="s-loaded" class="pill">-</span></div>
+    <div class="field" title="Live limit switches (lit amber = pressed). X-/X+ and Y-/Y+ are the travel ends; Zt = scoop fully retracted (Z home). Refreshed from the position heartbeat (≤~2s) while idle."><span class="label">Limits </span><span id="s-limits">-</span></div>
+    <span class="sep"></span>
+    <div class="field" style="flex:1; min-width:110px; max-width:300px; overflow:hidden;">
+        <span class="label">Msg </span><span id="s-msg" style="font-size:11px; color:#888; white-space:nowrap;">-</span>
+    </div>
+    <div style="margin-left:auto; display:flex; gap:6px; align-items:center;">
+        <button class="btn-help"  onclick="openHelp()" title="Open the help / documentation panel">? HELP</button>
+        <button class="btn-home"  onclick="cmd('/home')" title="Home all axes (Z retract → X → Y). Required before any move.">HOME</button>
+        <button class="btn-estop" onclick="cmd('/emergency_stop')" title="Stop all motion immediately. Re-home afterward.">■ E-STOP</button>
+    </div>
+</div>
+
+<!-- NEXT-STEP GUIDE BANNER -->
+<div id="next-step" class="guide-info">
+    <span id="next-step-text">Loading…</span>
+    <button id="next-step-action" style="display:none;"></button>
+</div>
+
+<!-- STEP-MODE APPROVAL BAR (shown only while a move is staged for approval) -->
+<div id="step-bar" style="display:none;">
+    <span id="step-icon">⏸</span>
+    <span id="step-desc">Waiting…</span>
+    <span style="flex:1;"></span>
+    <button id="step-approve" onclick="approveStep()" title="Run this one move (shortcut: A)">✔ APPROVE</button>
+    <button id="step-resume" onclick="setStepMode(false)" title="Stop approving — let the rest of the operation run on its own">▶▶ RESUME AUTO</button>
+    <button id="step-abort" onclick="abortStep()" title="Cancel the whole operation">■ ABORT</button>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+    <!-- Camera -->
+    <div id="camera-col">
+        <div id="feed-wrap">
+            <img id="feed" alt="Live Feed">
+            <div id="no-camera-banner">
+                <div class="nc-icon">⚠</div>
+                <div class="nc-title">No Camera Detected</div>
+                <div class="nc-hint">Connect camera and restart to enable vision features</div>
+            </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:6px;">
+            <button id="btn-flip" onclick="toggleFlip()"
+                    title="For an upside-down camera mount. Flips the image for both the viewer AND the vision system.">⟲ Flip Feed 180°</button>
+            <span class="hint" style="margin:0;">Arrow keys = XY jog &nbsp;·&nbsp; PgUp/PgDn = Z
+                &nbsp;·&nbsp; marker/outline color legend is in <b>HELP</b>.</span>
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div id="controls-col">
+
+        <!-- TAB STRIP -->
+        <div class="tabs">
+            <button class="tab active" data-tab="operate" onclick="showTab('operate')">Operate</button>
+            <button class="tab" data-tab="setup" onclick="showTab('setup')">Setup &amp; Calibrate<span id="badge-setup" class="badge">!</span></button>
+            <button class="tab" data-tab="manual" onclick="showTab('manual')">Manual</button>
+            <button class="tab" data-tab="debug" onclick="showTab('debug')">Debug</button>
+        </div>
+
+        <div id="tab-panels">
+
+        <!-- ══════════ OPERATE TAB ══════════ -->
+        <div class="tab-panel" data-tab="operate">
+
+            <!-- Service Target Robot -->
+            <div class="section">
+                <h3>🎯 Service Target Robot</h3>
+                <div class="card-sub">Camera-guided, keyed by <b>marker ID</b> (the target's positions aren't known
+                    ahead of time). Each button runs its whole sequence autonomously.</div>
+                <div class="align-row" title="The ArUco ID on the BATTERY you want to grab.">
+                    Battery marker ID:
+                    <input type="number" id="battery-id" value="0" min="0" max="49">
+                </div>
+                <button class="btn-act" id="btn-pickup" onclick="pickUpTarget()" disabled style="width:100%; margin-top:6px; padding:8px;"
+                        data-tip="Search (from X=0) → align → close in → fine-align → engage → lift → retract. Grip switch confirms."
+                        title="Search → align → engage → lift. Runs the full staged pick-up.">▶ PICK UP BATTERY</button>
+                <label class="step-toggle" title="Approve each move before it runs. Search stays automatic (scoop is up); from coarse-align onward, every move is proposed and waits for your OK — so it can't bump into anything unapproved.">
+                    <input type="checkbox" id="step-mode-toggle" onchange="setStepMode(this.checked)">
+                    🐢 Step mode — approve each move before it runs
+                </label>
+                <div class="align-row" style="margin-top:10px;" title="The ArUco ID on the target SLOT frame to place the battery into.">
+                    Slot marker ID:
+                    <input type="number" id="slot-id" value="0" min="0" max="49">
+                </div>
+                <button class="btn-act" id="btn-setdown-target" onclick="targetSetDown()" disabled style="width:100%; margin-top:6px; padding:8px; background:#2e5a8e;"
+                        data-tip="Raise battery to carry height → find the slot flag → align over it (X+Y) → lower straight down until the grip switch releases (seated) → retract. Gentle moves while loaded; never aligns in Z."
+                        title="Place the carried battery into the target slot, by its slot flag marker. Vision-guided.">▼ SET DOWN INTO SLOT</button>
+
+                <!-- collapsible alignment telemetry -->
+                <div class="collapse-toggle" id="align-toggle" onclick="toggleAlignDetails()">▸ alignment details</div>
+                <div id="align-details" style="display:none;">
+                    <div class="align-errs">
+                        <div class="err-block">
+                            <span class="err-label">X error</span>
+                            <span class="err-val" id="s-xerr">--</span>
+                            <span class="err-unit">px</span>
+                            <span class="err-unit" id="s-xerr-ref" style="color:#444;">±50</span>
+                        </div>
+                        <div class="err-block">
+                            <span class="err-label">Z error</span>
+                            <span class="err-val" id="s-zerr">--</span>
+                            <span class="err-unit">px</span>
+                            <span class="err-unit" id="s-zerr-ref" style="color:#444;">±50</span>
+                        </div>
+                    </div>
+                    <div class="align-errs" style="margin-top:6px;">
+                        <div class="err-block">
+                            <span class="err-label">Roll</span>
+                            <span class="err-val" id="s-roll" style="font-size:17px;">--</span>
+                            <span class="err-unit">deg</span>
+                            <span class="err-unit" id="s-roll-ref" style="color:#444;">ref:0 ±10°</span>
+                        </div>
+                        <div class="err-block">
+                            <span class="err-label">Pitch</span>
+                            <span class="err-val" id="s-pitch" style="font-size:17px;">--</span>
+                            <span class="err-unit">deg</span>
+                            <span class="err-unit" id="s-pitch-ref" style="color:#444;">ref:0 ±10°</span>
+                        </div>
+                        <div class="err-block">
+                            <span class="err-label">Yaw</span>
+                            <span class="err-val" id="s-yaw" style="font-size:17px;">--</span>
+                            <span class="err-unit">deg</span>
+                            <span class="err-unit" id="s-yaw-ref" style="color:#444;">ref:0 ±10°</span>
+                        </div>
+                    </div>
+                    <div id="orient-warn" class="tilt-warn" style="display:none;"></div>
+                </div>
+            </div>
+
+            <!-- Our Carrier Slots -->
+            <div class="section">
+                <h3>📍 Our Carrier Slots</h3>
+                <div class="card-sub">Our own battery slots at fixed positions — <b>no camera</b> (our robot has no markers).
+                    Set-down <b>re-homes X/Y with the battery first</b> (fresh reference, then dead-reckons to the slot) — keep the traverse path clear. Grip switch confirms seating.</div>
+                <div class="slot-row">
+                    <div class="slot-label">
+                        <span class="slot-name">Slot 1</span>
+                        <span class="slot-pos">(12 mm)</span>
+                    </div>
+                    <div class="slot-btns">
+                        <button id="our-pu-0" class="btn-slot-pu" onclick="cmd('/our_slot/pick_up/0')" title="Pick up the battery from our Slot 1">PICK UP</button>
+                        <button id="our-sd-0" class="btn-slot-sd" onclick="cmd('/our_slot/set_down/0')" title="Re-home with the battery, then set it down into our Slot 1 (dead-reckoned, grip-switch seating)">SET DOWN</button>
+                    </div>
+                </div>
+                <div class="slot-row">
+                    <div class="slot-label">
+                        <span class="slot-name">Slot 2</span>
+                        <span class="slot-pos">(295 mm)</span>
+                    </div>
+                    <div class="slot-btns">
+                        <button id="our-pu-1" class="btn-slot-pu" onclick="cmd('/our_slot/pick_up/1')" title="Pick up the battery from our Slot 2">PICK UP</button>
+                        <button id="our-sd-1" class="btn-slot-sd" onclick="cmd('/our_slot/set_down/1')" title="Re-home with the battery, then set it down into our Slot 2 (dead-reckoned, grip-switch seating)">SET DOWN</button>
+                    </div>
+                </div>
+                <div class="slot-row">
+                    <div class="slot-label">
+                        <span class="slot-name">Slot 3</span>
+                        <span class="slot-pos">(580 mm)</span>
+                    </div>
+                    <div class="slot-btns">
+                        <button id="our-pu-2" class="btn-slot-pu" onclick="cmd('/our_slot/pick_up/2')" title="Pick up the battery from our Slot 3">PICK UP</button>
+                        <button id="our-sd-2" class="btn-slot-sd" onclick="cmd('/our_slot/set_down/2')" title="Re-home with the battery, then set it down into our Slot 3 (dead-reckoned, grip-switch seating)">SET DOWN</button>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /operate -->
+
+        <!-- ══════════ SETUP & CALIBRATE TAB ══════════ -->
+        <div class="tab-panel" data-tab="setup" style="display:none;">
+
+            <!-- Camera Calibration -->
+            <div class="section">
+                <h3>📷 Camera Calibration</h3>
+                <div class="card-sub">
+                    Two separate calibrations — <b>Pick-up</b> (scoop → battery handle) and
+                    <b>Set-down</b> (carried battery → slot). Each captures two poses with a real marker
+                    in view: position the rig at the pose, then click. Hover a button for exactly what it saves.
+                </div>
+
+                <div class="cal-block" title="Pick-up: align the scoop to a battery handle (battery-case marker).">
+                    <div class="cal-title">Pick-up calibration (battery marker)</div>
+                    <div class="card-sub" style="margin:2px 0 6px;">
+                        ① At the <b>close pre-engage pose</b> (scoop just before the handle) capture the aim point,
+                        then ② jog to <b>full engagement</b> and capture the stop depth.
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#888;">
+                        Marker ID: <input type="number" id="cal-pickup-id" value="0" min="0" max="49" style="width:44px;">
+                    </div>
+                    <div style="display:flex; gap:6px; margin-top:6px;">
+                        <button class="btn-set" style="flex:1;" onclick="calibrate('pickup','xz')"
+                                title="① Aim point (close pre-engage pose): saves the marker's pixel position as the pick-up crosshair, plus its orientation and the pre-engage width.">① AIM POINT</button>
+                        <button class="btn-set" style="flex:1;" onclick="calibrate('pickup','width')"
+                                title="② Engage depth (full engagement): saves the marker's width as the Y-stop the approach drives in to.">② ENGAGE DEPTH</button>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+                        <div id="cal-status-pickup" class="cal-status bad" style="flex:1; margin-top:0;">✗ NOT CALIBRATED</div>
+                        <button class="btn-set" onclick="resetCalibration('pickup')" title="Clear the pick-up calibration (crosshair, outlines, width, orientation)">CLEAR</button>
+                    </div>
+                </div>
+
+                <div class="cal-block" title="Set-down: place a carried battery into a slot, aligned to the slot's flag marker.">
+                    <div class="cal-title">Set-down calibration (slot marker)</div>
+                    <div class="card-sub" style="margin:2px 0 6px;">
+                        ① With the battery held at <b>full Z-retract</b>, parked <b>over the slot</b>, capture the
+                        over-slot pose, then ② lower until <b>seated</b> and capture the seated pose (used as the
+                        descent guard). Set-down never aligns in Z — Z is only the descent.
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:#888;">
+                        Marker ID: <input type="number" id="cal-setdown-id" value="0" min="0" max="49" style="width:44px;">
+                    </div>
+                    <div style="display:flex; gap:6px; margin-top:6px;">
+                        <button class="btn-set" style="flex:1;" onclick="calibrate('setdown','xz')"
+                                title="① Over-slot pose (battery at full retract, over the slot): saves the slot marker's pixel position (X aim) and width (Y depth) the descent starts from. This one capture makes set-down alignment-ready.">① OVER-SLOT POSE</button>
+                        <button class="btn-set" style="flex:1;" onclick="calibrate('setdown','width')"
+                                title="② Seated pose (battery fully lowered into the slot): saves where the marker sits when seated — used as the descent guard and a placement check. Optional but recommended.">② SEATED POSE</button>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+                        <div id="cal-status-setdown" class="cal-status bad" style="flex:1; margin-top:0;">✗ NOT CALIBRATED</div>
+                        <button class="btn-set" onclick="resetCalibration('setdown')" title="Clear the set-down calibration (over-slot + seated poses)">CLEAR</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scoop Z Heights -->
+            <div class="section">
+                <h3>Scoop Z Heights — Our Carrier Slots (lab-measured)</h3>
+                <div class="card-sub">
+                    Two scoop travel distances for the <b>Our Carrier Slot</b> Pick&nbsp;Up /
+                    Set&nbsp;Down buttons, where the geometry is fixed and known. (The target robot
+                    isn't set here — its handle height varies per visit, so it's found live by
+                    vision.) Distances are measured in <b>time</b> (the Z actuator has no encoder):
+                    click <b>▶ Measure</b>, watch the scoop, and a live timer captures the value —
+                    or type one in. Required before the Our&nbsp;Slot buttons enable. Persisted to
+                    calibration.json.
+                </div>
+
+                <div class="zh-row">
+                    <div class="zh-head">
+                        <span class="zh-name">① Handle depth</span>
+                        <input type="number" id="z-handle" min="0" max="55000" placeholder="ms">
+                        <span class="zh-unit">ms</span>
+                        <button class="btn-measure" onclick="measureStart('handle')">▶ Measure</button>
+                    </div>
+                    <div class="zh-desc">From fully retracted, how far <b>▼ down</b> to reach handle height — where the scoop slides under a battery handle. This is the seat depth: pick-up lowers to here, set-down stops here.</div>
+                </div>
+
+                <div class="zh-row">
+                    <div class="zh-head">
+                        <span class="zh-name">② Clear-the-slot lift</span>
+                        <input type="number" id="z-lift" min="0" max="55000" placeholder="ms">
+                        <span class="zh-unit">ms</span>
+                        <button class="btn-measure" onclick="measureStart('lift')">▶ Measure</button>
+                    </div>
+                    <div class="zh-desc">From handle height, how far <b>▲ up</b> to lift a cradled battery until it's clear of the slot bracing (so Y can retract without snagging).</div>
+                </div>
+
+                <button class="btn-set" onclick="setZHeights()">SAVE</button>
+                <div id="z-status" class="cal-status bad">✗ NOT SET</div>
+            </div>
+
+            <!-- Alignment Tolerances (advanced) -->
+            <div class="section">
+                <h3>⚙ Alignment Tolerances (advanced)</h3>
+                <div class="card-sub">
+                    How close counts as "aligned" before the robot commits — bigger = more lenient.
+                    Per operation. Fields: <b>X</b>/<b>Z</b> position, <b>W</b>idth (px); <b>R</b>oll/<b>P</b>itch/<b>Y</b>aw
+                    tilt (°). Defaults: X/Z 50 px, width 10 px, tilt 10°. Tuning aid; leave at defaults if unsure.
+                </div>
+                <div class="cal-block">
+                    <div class="cal-title">Pick-up tolerances</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; font-size:11px; color:#888;">
+                        X<input type="number" id="tol-pickup-x_px" style="width:42px;">
+                        Z<input type="number" id="tol-pickup-z_px" style="width:42px;">
+                        W<input type="number" id="tol-pickup-width_px" style="width:42px;"><span>px</span>
+                        &nbsp;R<input type="number" id="tol-pickup-roll_deg" style="width:42px;">
+                        P<input type="number" id="tol-pickup-pitch_deg" style="width:42px;">
+                        Y<input type="number" id="tol-pickup-yaw_deg" style="width:42px;"><span>°</span>
+                    </div>
+                    <div style="display:flex; gap:6px; margin-top:6px;">
+                        <button class="btn-set" style="flex:1;" onclick="setTol('pickup')">SET</button>
+                        <button class="btn-set" onclick="resetTol('pickup')">RESET</button>
+                    </div>
+                </div>
+                <div class="cal-block">
+                    <div class="cal-title">Set-down tolerances</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; font-size:11px; color:#888;">
+                        X<input type="number" id="tol-setdown-x_px" style="width:42px;">
+                        Z<input type="number" id="tol-setdown-z_px" style="width:42px;">
+                        W<input type="number" id="tol-setdown-width_px" style="width:42px;"><span>px</span>
+                        &nbsp;R<input type="number" id="tol-setdown-roll_deg" style="width:42px;">
+                        P<input type="number" id="tol-setdown-pitch_deg" style="width:42px;">
+                        Y<input type="number" id="tol-setdown-yaw_deg" style="width:42px;"><span>°</span>
+                    </div>
+                    <div style="display:flex; gap:6px; margin-top:6px;">
+                        <button class="btn-set" style="flex:1;" onclick="setTol('setdown')">SET</button>
+                        <button class="btn-set" onclick="resetTol('setdown')">RESET</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Marker Labels -->
+            <div class="section">
+                <h3>Marker Labels</h3>
+                <div class="card-sub">
+                    Name any marker ID so it's labeled on the live feed (e.g. "Target middle slot").
+                    Active and our-robot battery markers are auto-labeled.
+                </div>
+                <div class="mlabel-row">
+                    ID <input type="number" id="mlabel-id" value="0" min="0" max="49" style="width:44px;">
+                    <input type="text" id="mlabel-text" placeholder="label (empty clears)">
+                    <button class="btn-set" onclick="setMarkerLabel()">SET</button>
+                </div>
+                <div id="mlabel-list" style="margin-top:6px;"></div>
+            </div>
+
+        </div><!-- /setup -->
+
+        <!-- ══════════ MANUAL TAB ══════════ -->
+        <div class="tab-panel" data-tab="manual" style="display:none;">
+
+            <!-- Manual Jog -->
+            <div class="section">
+                <h3>Manual Jog</h3>
+                <div class="card-sub">Nudge each axis by hand.</div>
+                <div class="jog-params">
+                    Steps:
+                    <input type="number" id="jog-steps" value="50" min="1" max="200">
+                    &nbsp;Z ms:
+                    <input type="number" id="jog-ms" value="1000" min="100" max="5000">
+                </div>
+                <div class="jog-controls">
+                    <div class="jog-pad">
+                        <div></div>
+                        <button class="btn-jog" onclick="jog('y', 1)">Y+</button>
+                        <div></div>
+
+                        <button class="btn-jog" onclick="jog('x', -1)">X−</button>
+                        <div class="jog-center"></div>
+                        <button class="btn-jog" onclick="jog('x', 1)">X+</button>
+
+                        <div></div>
+                        <button class="btn-jog" onclick="jog('y', -1)">Y−</button>
+                        <div></div>
+                    </div>
+                    <div class="jog-z-col">
+                        <button class="btn-jog" onclick="jog('z', -1)">Z UP</button>
+                        <button class="btn-jog" onclick="jog('z',  1)">Z DN</button>
+                        <div class="jog-z-note">UP=retract<br>DN=extend</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Position Control -->
+            <div class="section">
+                <h3>Position Control</h3>
+                <div class="card-sub">Move directly to absolute positions (mm). For setup &amp; testing.</div>
+                <div class="pos-row" title="Move to absolute X / Y / Z (mm). GO moves all three — fields track the live position, so only the axis you change moves.">
+                    <span class="pos-label">GOTO</span>
+                    X <input type="number" id="goto-x" value="0" min="0" max="2000" style="width:56px;">
+                    Y <input type="number" id="goto-y" value="0" min="0" max="2000" style="width:56px;">
+                    Z <input type="number" id="goto-z" value="0" min="0" max="350" style="width:56px;">
+                    mm
+                    <button id="btn-goto" class="btn-set" style="margin-left:auto;" onclick="goto_all()" title="Move X, Y, and Z to the values shown">GO</button>
+                </div>
+
+                <div class="pos-divider"></div>
+
+                <div class="pos-settings">
+                    <span class="pos-slabel">Accel</span>
+                    <input type="number" id="accel-val" value="80" min="10" max="500">
+                    <span class="pos-unit">steps/s²</span>
+                    <button class="btn-set" onclick="set_accel()">SET</button>
+                    <span class="set-status" id="st-accel" title="Saved"></span>
+
+                    <span class="pos-slabel" title="Max X/Y travel speed for ALL moves (jog + automated sequences share it). Lower = more stepper torque (peak torque is at low speed) for fighting friction/load; higher = faster but risks skipping. Firmware clamps to 10–200.">Speed</span>
+                    <input type="number" id="speed-val" value="60" min="10" max="200">
+                    <span class="pos-unit">steps/s</span>
+                    <button class="btn-set" onclick="set_speed()">SET</button>
+                    <span class="set-status" id="st-speed" title="Saved"></span>
+
+                    <span class="pos-slabel" title="Extra wait after each move FINISHES (the Arduino's DONE) before the camera analyzes a new frame — lets vibration damp. Increase this if the robot acts on a still-settling frame.">Settle</span>
+                    <input type="number" id="settle-val" value="0.6" min="0" max="5" step="0.1">
+                    <span class="pos-unit">s</span>
+                    <button class="btn-set" onclick="set_settle()">SET</button>
+                    <span class="set-status" id="st-settle" title="Saved"></span>
+
+                    <span class="pos-slabel" title="Linear actuator speed. Single source of truth: fixes BOTH the dashboard Z readout AND the Z alignment gain. Re-measure when the actuator's speed drifts — jog Z for a few seconds, measure the travel, divide.">Z speed</span>
+                    <input type="number" id="zspeed-val" value="2.8" min="0.5" max="200" step="0.1">
+                    <span class="pos-unit">mm/s</span>
+                    <button class="btn-set" onclick="set_zspeed()">SET</button>
+                    <span class="set-status" id="st-zspeed" title="Saved"></span>
+                </div>
+            </div>
+
+            <!-- Track Marker (test) -->
+            <div class="section">
+                <h3>🎥 Track Marker (test)</h3>
+                <div class="card-sub">Continuously center a marker (X+Z) to test alignment. Does NOT pick up.</div>
+                <div class="align-row">
+                    Marker ID:
+                    <input type="number" id="demo-id" value="0" min="0" max="49">
+                </div>
+                <button id="btn-demo-follow" class="btn-go" onclick="demoFollow()"
+                        title="Continuously track the marker (X+Z), for testing. Does not pick up.">START TRACKING</button>
+            </div>
+
+        </div><!-- /manual -->
+
+        <!-- ══════════ DEBUG TAB ══════════ -->
+        <div class="tab-panel" data-tab="debug" style="display:none;">
+            <div class="section">
+                <h3>🪵 Live Debug Log</h3>
+                <div class="card-sub">Every decision the robot makes, newest at the bottom. A line that
+                    keeps repeating (e.g. <code>×42</code>) means it's stuck looping — usually alignment
+                    oscillating around its tolerance. Also saved to <code>Pi_Code/logs/run_*.log</code>.</div>
+                <div class="dbg-controls">
+                    <button class="btn-set" onclick="clearDebugLog()">CLEAR</button>
+                    <button class="btn-set" onclick="copyDebugLog()">COPY</button>
+                    <label class="dbg-autoscroll">
+                        <input type="checkbox" id="dbg-autoscroll" checked> auto-scroll
+                    </label>
+                </div>
+                <div id="dbg-console"></div>
+            </div>
+        </div><!-- /debug -->
+
+        </div><!-- /tab-panels -->
+    </div><!-- /controls-col -->
+</div><!-- /main -->
+
+<!-- HELP / DOCUMENTATION OVERLAY -->
+<div id="help-overlay" onclick="if(event.target===this)closeHelp()">
+  <div id="help-modal">
+    <button id="help-close" onclick="closeHelp()">✕ CLOSE</button>
+    <h2>Battery-Swap Gantry — Operator Guide</h2>
+    <p>Autonomous gantry that picks up and sets down robot batteries. The Raspberry Pi runs the
+       vision + decision loop; the Arduino drives the X/Y steppers and the Z (scoop) actuator.</p>
+
+    <h3>0. The dashboard at a glance</h3>
+    <ul>
+      <li>The <b>Next step</b> banner (below the status bar) always tells you what to do next and gives
+          the button to do it — just follow it.</li>
+      <li>Controls are split into tabs: <b>Operate</b> (run jobs), <b>Setup &amp; Calibrate</b>
+          (one-time camera setup), and <b>Manual</b> (jog / GOTO / testing).</li>
+      <li>Status pills up top: Arduino, Homed, Cal (camera calibrated?), State, Grip, and
+          <b>Motion mode</b> (GENTLE while carrying a battery, else NORMAL).</li>
+    </ul>
+
+    <h3>1. Startup sequence</h3>
+    <ol>
+      <li>Power the Arduino (USB). It prints <code>SYSTEM READY</code> — this means it is alive,
+          <b>not</b> that it can move yet.</li>
+      <li>Power the motor PSU.</li>
+      <li>Press <code>HOME</code> and wait for <b>Homed: YES</b>. Homing retracts Z, then homes X, then Y.</li>
+      <li>Operation buttons stay disabled until homed.</li>
+    </ol>
+
+    <h3>2. Coordinate &amp; axis conventions</h3>
+    <ul>
+      <li><b>X</b> = along the gantry. <b>Y</b> = toward/away from the robot (0 = retracted). <b>Z</b> = scoop up/down.</li>
+      <li>The scoop is an upside-down "V" that cradles the battery handle from underneath.</li>
+    </ul>
+
+    <h3>3. Operate — Service Target Robot</h3>
+    <p>The target robot's positions aren't known ahead of time, so its operations are keyed by
+       <b>marker ID</b> (not slot number, the way our own carrier slots are). Each button runs its
+       whole sequence autonomously — there's no separate "align" step.</p>
+    <ul>
+      <li><b>PICK UP BATTERY</b> (enter the battery's marker ID): the full staged pick-up below.</li>
+      <li><b>SET DOWN INTO SLOT</b> (enter the slot-frame marker ID): place the carried battery.</li>
+      <li><b>alignment details</b> (collapsible) shows live X/Z pixel error and marker tilt vs. target.</li>
+    </ul>
+
+    <h3>4. Pick-up flow (target robot) — staged, one button</h3>
+    <ol>
+      <li><b>Search</b>: returns X to 0 (and retracts Z so the camera can see), then sweeps +X until
+          the battery marker is found.</li>
+      <li><b>Coarse align</b> X+Z onto the pick-up crosshair (rough — it's far away).</li>
+      <li><b>Approach</b> Y until the marker grows to the <b>pre-engage</b> width (close, just before
+          the handle enters the scoop).</li>
+      <li><b>Fine align</b> X+Z again — now at the calibration depth, so it's accurate — then check
+          orientation. If the marker is too tilted, it <b>aborts here</b> before committing.</li>
+      <li><b>Engage</b>: drive Y the last bit to the full engagement width, lift Z, retract Y.</li>
+      <li>The <b>grip switch</b> confirms a battery is held; status warns if the scoop came back empty.</li>
+    </ol>
+    <p><b>🐢 Step mode (approve each move):</b> tick the checkbox under PICK UP BATTERY before
+       starting. Search still runs on its own (the scoop is up — nothing to hit), but from
+       <b>coarse align onward every move is staged and waits for you</b>. A bar appears at the top
+       showing exactly what it wants to do (e.g. "move X +47 steps, x_err=120px"); press
+       <b>APPROVE</b> (or the <b>A</b> key) to run that one move, <b>RESUME AUTO</b> to let the rest
+       finish on its own, or <b>ABORT</b> to cancel. Use it to watch the logic and stop the arm
+       before it can bump into anything.</p>
+
+    <h3>5. Set-down flow (target robot)</h3>
+    <p>Carrying a ~30 kg battery is a pendulum, so the whole op runs under a <b>gentle motion
+       profile</b> (reduced accel/speed — the "Motion mode" pill reads GENTLE). Unlike a pick-up there's
+       no handle to thread, so it never stages a Y engage and <b>never aligns in Z</b>.</p>
+    <ol>
+      <li><b>Raise</b> Z fully first — battery to carry height (max ground clearance, shortest
+          pendulum) before any horizontal move.</li>
+      <li>Find the slot flag marker, then <b>align over the slot in X and Y only</b> (Y from the
+          marker width). Z stays retracted.</li>
+      <li><b>Lower straight down</b> in small steps, re-centering X between pulses, until the
+          <b>grip switch releases</b> — the battery's weight has transferred to the slot (seated). The
+          firmware stops the lowering pulse the instant that happens. Backstops: the calibrated
+          <b>seated pose</b> and a relative travel guard (for a never-seats jam).</li>
+      <li><b>Retract Y</b> to slide the scoop off. The scoop never raises Z to disengage (that would
+          lift the battery back out).</li>
+    </ol>
+
+    <h3>6. Our Carrier Slots</h3>
+    <p>Our own slots are at fixed positions with <b>no markers</b> (no vision). Pick-up dead-reckons
+       (with an optional vision refine if the pick-up profile is calibrated). <b>Set-down re-homes
+       X/Y with the battery first</b> — a fresh switch reference, since open-loop steps drift worst
+       under a swinging load — then dead-reckons to the slot and lowers to the absolute seat depth,
+       stopping early the instant the grip switch releases. Keep the traverse path clear; it runs
+       gentle (loaded) too.</p>
+
+    <h3>7. Setup &amp; Calibrate — Camera Calibration (two profiles)</h3>
+    <ul>
+      <li><b>Pick-up</b> references the battery-case marker; <b>Set-down</b> references the slot flag
+          marker. Different references, calibrated separately. Each captures two poses.</li>
+      <li><b>Pick-up ① Aim point</b>: at the <b>close pre-engage pose</b> (scoop right at the handle,
+          just before it enters), marker centered — stores the crosshair, the marker's outline +
+          <b>orientation</b> (the per-profile tilt target), and the pre-engage width.
+          <b>② Engage depth</b>: at <b>full engagement</b>, stores the width the final Y approach
+          stops at.</li>
+      <li><b>Set-down ① Over-slot pose</b>: with the battery held at <b>full Z-retract, parked over
+          the slot</b> — stores the X aim and the Y depth (width) the descent starts from; this one
+          capture makes set-down alignment-ready. <b>② Seated pose</b> (optional but recommended):
+          lower until <b>seated</b>, then capture — stores where the marker sits when seated, used as
+          the descent guard + a placement check.</li>
+    </ul>
+
+    <h3>7b. Setup — Scoop Z Heights (required for Our-Carrier-Slot operations)</h3>
+    <p>The Our-Carrier-Slot Pick Up / Set Down buttons need two lab-measured Z travel times (the Z
+       actuator has no encoder, so distance is tracked as motion time). These are only for our own
+       carrier, where the geometry is fixed; the target robot's handle height varies per visit and is
+       found live by vision, so it needs nothing here.</p>
+    <ul>
+       <li><b>① Handle depth</b> — from fully retracted (top), how long the scoop lowers until it
+           reaches handle height (where it cradles a battery handle). This is the seat depth:
+           pick-up lowers to here, and set-down stops here if the grip switch hasn't already released.</li>
+       <li><b>② Clear-the-slot lift</b> — from handle height, how long it lifts a cradled battery
+           until it's fully clear of the slot bracing (so Y can retract without snagging).</li>
+    </ul>
+    <p>Click <b>▶ Measure</b> on a row for a guided stopwatch: position the scoop, press START, watch
+       it move, and press CAPTURE at the right point — the elapsed time is filled in for you (you can
+       also type values directly). Until both are set, the Our-Slot buttons stay disabled and the
+       Setup tab shows a badge. The <i>target</i> set-down instead lowers until the grip switch
+       signals seated, backed by a fixed relative travel guard so a jam can't crush the battery.</p>
+
+    <h3>7c. Setup — Alignment Tolerances (advanced)</h3>
+    <p>How close counts as "aligned" before the robot commits, <b>per operation</b> (pick-up vs
+       set-down), for each of X, Z, width (px) and roll/pitch/yaw (°). Bigger = more lenient.
+       Leave at defaults unless tuning. The <b>alignment details</b> panel shows each live error
+       against its tolerance, and the active marker outline turns green only when position <b>and</b>
+       width <b>and</b> orientation are all within tolerance.</p>
+    <p><b>Note on "width":</b> it's the marker's size as <b>√(area)</b>, not one edge — so it stays an
+       honest distance measure even when the marker is rolled or tilted.</p>
+
+    <h3>8. Marker color legend &amp; on-feed overlays</h3>
+    <p class="legend"><span style="color:#2ecc71;">Green</span> = active marker, in tolerance ·
+       <span style="color:#e74c3c;">Red</span> = active, out of tolerance ·
+       <span style="color:#888;">Grey</span> = other detected marker (dimmed, no telemetry).
+       Use <b>Marker Labels</b> (Setup tab) to name any ID so it's annotated on the feed.</p>
+    <p><b>Why is it red?</b> Under the active marker, three chips — <b>L/R</b> (left-right),
+       <b>U/D</b> (up-down) and <b>Depth</b> — each turn green (in tolerance) or red (off), so you
+       can see exactly which term is blocking the commit. Below them, the <b>Tilt</b> line reads
+       <i>Tilt OK</i> when square-on, or names each off-axis with its <b>acceptable range</b>
+       (e.g. <i>Yaw 16deg (ok: -10 to 10)</i>) so the number explains itself. While off-position,
+       an <b>arrow</b> points from the marker toward the crosshair (amber when close, red when far)
+       and disappears once L/R + U/D are aligned.</p>
+    <p><b>Depth gauge</b> (right edge, shown only while driving in): the marker's width is the
+       depth proxy (closer = wider). A <b>pointer</b> rises to the current depth; the green
+       <b>engaged</b> band is the stop depth (± tolerance) you drive in to, and the <b>line-up</b>
+       tick is the pre-engage depth. The pointer turns green once inside the band.</p>
+    <p><b>Phase banner</b> (top-left): the running op's stages left→right — green = done, bright =
+       active, grey = upcoming — so you can track progress without reading the status line.</p>
+    <p>Calibration outlines on the feed: <span style="color:#00c8ff;">cyan = pick-up</span>,
+       <span style="color:#c800ff;">magenta = set-down</span>. Each profile shows two captured
+       poses: the <b>thick "line-up"</b> outline (SET XZ REF) and the <b>thin "engaged"</b> outline
+       (SET WIDTH REF), so you can verify both calibrations at a glance. The aim <b>crosshair (+)</b>
+       shows the saved aim point — faint for each calibrated profile when idle; during an operation
+       the active profile's crosshair gains a <b>dashed box</b> = its left-right / up-down position
+       tolerance (so position tolerance is shown by the box, depth tolerance by the green band, and
+       tilt tolerance by the range in the Tilt line).</p>
+
+    <h3>9. Manual tab — Position Control, Jog &amp; Track</h3>
+    <p><b>GOTO</b> moves to absolute X/Y/Z (mm) with one GO; the fields track the live position, so
+       only the axis you change actually moves. <b>Accel</b> sets the motion acceleration and
+       <b>Speed</b> the max X/Y travel speed — both are global (jog and automated sequences share
+       them). Lower the speed for more stepper torque against friction/load (steppers make peak
+       torque at low speed); the firmware clamps it to 10–200 steps/s. <b>Manual Jog</b> nudges each axis by the configured
+       step/pulse; arrow keys jog XY, PgUp/PgDn jog Z (Z UP = retract, Z DN = extend).
+       <b>Track Marker</b> continuously centers a marker for testing — it never picks up.</p>
+    <p>To clear a calibration, use the <b>CLEAR</b> button on its profile in the Setup tab.</p>
+
+    <h3>10. E-STOP</h3>
+    <p><code>E-STOP</code> halts all motion immediately (including homing). After an E-STOP the
+       robot is no longer homed — press <code>HOME</code> again before operating.</p>
+  </div>
+</div>
+
+<!-- SCOOP Z-HEIGHT MEASURE WIZARD -->
+<div id="zmeasure-overlay" onclick="if(event.target===this)measureCancel()">
+  <div id="zmeasure-modal">
+    <h2 id="zm-title">Measure</h2>
+    <div id="zm-note" class="zm-note" style="display:none;"></div>
+    <div id="zm-desc"></div>
+    <div id="zm-timer">0.0 s</div>
+    <div id="zm-buttons"></div>
+    <button class="zm-cancel" onclick="measureCancel()">Cancel &amp; stop</button>
+  </div>
+</div>
+
+<script>
+    function cmd(url) {
+        fetch(url).then(r => r.json()).then(d => console.log(url, d)).catch(e => console.error(url, e));
+    }
+
+    function toggleFlip() {
+        // No body → server toggles. Status poll updates the button label/active state.
+        fetch('/set_flip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
+            .then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    // Only one /jog may be outstanding at a time. The server now blocks the
+    // request until the move actually finishes, so this in-flight guard is what
+    // paces a held key (the next jog can't fire until the last move completes) —
+    // clean step-step-step instead of a flood of overlapping moves that judder
+    // and backlog the serial buffer. Returns the request promise so the held-key
+    // repeat loop can chain on completion.
+    let jogInFlight = false;
+    function jog(axis, dir) {
+        if (jogInFlight) return Promise.resolve();
+        jogInFlight = true;
+        // Magnitude only — `dir` is the sole source of sign. A typed minus (browsers don't enforce
+        // min="1" on manual input) would otherwise flip BOTH axes, since X/Y share this field, and a
+        // negative ms would invert Z. Clamp to the input ranges so a stray sign/huge value can't.
+        const steps = Math.min(200,  Math.max(1,   Math.abs(parseInt(document.getElementById('jog-steps').value)) || 50));
+        const ms    = Math.min(5000, Math.max(100, Math.abs(parseInt(document.getElementById('jog-ms').value))    || 1000));
+        return fetch('/jog', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({axis, direction: dir, steps, ms})
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e))
+          .finally(() => { jogInFlight = false; });
+    }
+
+    function pickUpTarget() {
+        const id = parseInt(document.getElementById('battery-id').value) || 0;
+        cmd('/target/pick_up/' + id);
+    }
+
+    function setStepMode(on) { cmd('/step_mode/' + (on ? 1 : 0)); }
+    function approveStep()   { cmd('/approve'); }
+    function abortStep()     { cmd('/step_abort'); }
+
+    function demoFollow() {
+        const id = parseInt(document.getElementById('demo-id').value) || 0;
+        cmd('/demo_follow/' + id);
+    }
+
+    function goto_all() {
+        const x = parseFloat(document.getElementById('goto-x').value) || 0;
+        const y = parseFloat(document.getElementById('goto-y').value) || 0;
+        const z = parseFloat(document.getElementById('goto-z').value) || 0;
+        fetch('/goto', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({x_mm: x, y_mm: y})
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+        fetch('/goto_z', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({z_mm: z})
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    function resetCalibration(profile) {
+        if (!confirm('Clear the ' + profile + ' calibration? This deletes its crosshair, outlines, width, and orientation.')) return;
+        fetch('/calibrate/' + profile + '/reset', { method: 'POST' })
+            .then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    function set_accel() {
+        const a = parseInt(document.getElementById('accel-val').value) || 80;
+        fetch('/set_accel', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({accel: a})
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    function set_speed() {
+        const s = parseInt(document.getElementById('speed-val').value) || 60;
+        fetch('/set_speed', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({speed: s})
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    function set_settle() {
+        const s = parseFloat(document.getElementById('settle-val').value);
+        fetch('/set_settle_time', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({settle_time_s: isNaN(s) ? 0.6 : s})
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    function set_zspeed() {
+        const s = parseFloat(document.getElementById('zspeed-val').value);
+        if (isNaN(s) || s <= 0) return;
+        fetch('/set_z_speed', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({z_mm_per_s: s})
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    // ── Tabs ──
+    function showTab(name) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+        document.querySelectorAll('.tab-panel').forEach(p => p.style.display = (p.dataset.tab === name) ? 'block' : 'none');
+        try { localStorage.setItem('activeTab', name); } catch (e) {}
+    }
+
+    function toggleAlignDetails() {
+        const d = document.getElementById('align-details');
+        const t = document.getElementById('align-toggle');
+        const open = (d.style.display === 'none');
+        d.style.display = open ? 'block' : 'none';
+        t.textContent = (open ? '▾' : '▸') + ' alignment details';
+    }
+
+    let cameraAvailable = true;
+
+    // Arrow key / PgUp/PgDn jog (blocked when typing in an input).
+    // A held key is paced by us, NOT by the OS key-repeat: we ignore e.repeat and
+    // re-issue the jog only once the previous move completes. Holding therefore
+    // gives clean repeated steps instead of flooding the serial link.
+    const JOG_KEYMAP = {
+        ArrowLeft:  ['x', -1], ArrowRight: ['x',  1],
+        ArrowUp:    ['y',  1], ArrowDown:  ['y', -1],
+        PageUp:     ['z', -1], PageDown:   ['z',  1],
+    };
+    let jogHeldKey = null;   // the jog key currently held down, or null
+
+    function jogRepeat(key) {
+        if (jogHeldKey !== key) return;            // released (or another key took over)
+        const [axis, dir] = JOG_KEYMAP[key];
+        jog(axis, dir).then(() => { if (jogHeldKey === key) jogRepeat(key); });
+    }
+
+    // Stop repeating on key release or if the window loses focus (so a held key
+    // can't keep firing after you alt-tab away).
+    document.addEventListener('keyup', function(e) { if (jogHeldKey === e.key) jogHeldKey = null; });
+    window.addEventListener('blur', function() { jogHeldKey = null; });
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { closeHelp(); measureCancel(); return; }
+        if (e.target.tagName === 'INPUT') return;
+        if (document.getElementById('help-overlay').style.display === 'block') return;
+        if (document.getElementById('zmeasure-overlay').style.display === 'block') return;
+        if (JOG_KEYMAP[e.key]) {
+            e.preventDefault();
+            if (e.repeat) return;                  // ignore OS auto-repeat; we pace it ourselves
+            jogHeldKey = e.key;
+            jogRepeat(e.key);
+            return;
+        }
+        // Approve a staged move with 'A' (only when the step-bar is showing)
+        if ((e.key === 'a' || e.key === 'A') &&
+            document.getElementById('step-bar').style.display !== 'none') {
+            e.preventDefault(); approveStep();
+        }
+    });
+
+    // State → pill color + friendly label
+    const STATE_COLOR = {
+        'IDLE': '', 'SEARCHING': 'warn', 'ALIGNING_XZ': 'warn', 'DEMO_FOLLOW': 'warn',
+        'PICKING_UP': 'ok', 'OUR_PICKING_UP': 'ok',
+        'OUR_SETTING_DOWN': 'ok', 'SETTING_DOWN_TARGET': 'ok',
+    };
+    const STATE_FRIENDLY = {
+        'IDLE': 'Ready', 'SEARCHING': 'Searching…', 'ALIGNING_XZ': 'Aligning…',
+        'DEMO_FOLLOW': 'Tracking (demo)…',
+        'PICKING_UP': 'Picking up…', 'OUR_PICKING_UP': 'Picking up (slot)…',
+        'OUR_SETTING_DOWN': 'Setting down (slot)…', 'SETTING_DOWN_TARGET': 'Setting down…',
+    };
+    function friendlyState(s) { return STATE_FRIENDLY[s] || s; }
+
+    // Enable/disable a button, showing a reason as its tooltip when disabled and restoring
+    // the button's own descriptive tip (captured into data-tip) when enabled.
+    function gate(id, disabled, reason) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.dataset.tip === undefined) el.dataset.tip = el.title || '';
+        el.disabled = disabled;
+        el.title = (disabled && reason) ? reason : el.dataset.tip;
+    }
+
+    // Color-code an error against its actual tolerance: green within, amber within 1.5×, else red.
+    function tolClass(v, tol) {
+        if (v === null || v === '--') return '';
+        const a = Math.abs(Number(v));
+        return a <= tol ? 'ok' : a <= tol * 1.5 ? 'warn' : 'bad';
+    }
+
+    function cls(el, c) { el.className = c; }
+    function setPill(el, state, text) { el.className = 'pill ' + state; if (text !== undefined) el.textContent = text; }
+
+    // Seed a setting input from its server value (when unfocused) and show a status dot:
+    // ✓ = saved/matches server, ● = pending (awaiting Arduino) or an unsaved edit in the field.
+    function savedDot(inputId, dotId, serverVal, pending) {
+        const inp = document.getElementById(inputId);
+        const dot = document.getElementById(dotId);
+        if (!inp || !dot) return;
+        if (document.activeElement !== inp) inp.value = serverVal;
+        const unsaved = parseFloat(inp.value) !== parseFloat(serverVal);
+        if (pending)      { dot.textContent = '●'; dot.className = 'set-status warn'; dot.title = 'Pending — waiting for the Arduino to confirm'; }
+        else if (unsaved) { dot.textContent = '●'; dot.className = 'set-status warn'; dot.title = 'Unsaved — press SET to apply'; }
+        else              { dot.textContent = '✓'; dot.className = 'set-status ok';   dot.title = 'Saved'; }
+    }
+
+    // ── Dynamic next-step guide ──
+    function renderNextStep(d, homedOK, pu, sd) {
+        const box = document.getElementById('next-step');
+        const txt = document.getElementById('next-step-text');
+        const act = document.getElementById('next-step-action');
+        let variant = 'guide-info', msg = '', action = null;
+
+        if (d.link_alive === false && !d.simulated) {
+            // Most critical: the Arduino stopped replying. Turns a "mysteriously frozen robot" into
+            // an actionable cause. Nothing else works until the link is back.
+            variant = 'guide-bad';
+            msg = '⛔ Arduino link lost — check USB cable & motor PSU, then press HOME.';
+            action = { label: 'HOME', fn: "cmd('/home')" };
+        } else if (d.camera_available === false) {
+            variant = 'guide-bad'; msg = '⚠ No camera detected — connect it and restart the server.';
+        } else if (d.is_homing) {
+            variant = 'guide-warn'; msg = '⏳ Homing… please wait.';
+        } else if (!homedOK) {
+            variant = 'guide-warn'; msg = '① Press HOME to home the robot before operating.';
+            action = { label: 'HOME', fn: "cmd('/home')" };
+        } else if (d.last_abort && d.last_abort.reason && (!d.state || d.state === 'IDLE')) {
+            // Why the last operation stopped — sticky until dismissed. Gated to IDLE so a
+            // freshly-started op shows its running status instead of a stale abort.
+            const reason = d.last_abort.reason.replace(/^ABORT:\s*/, '');
+            const t = d.last_abort.t ? new Date(d.last_abort.t * 1000).toLocaleTimeString() : '';
+            variant = 'guide-bad';
+            msg = '⛔ ' + reason + (t ? ' (' + t + ')' : '');
+            action = { label: 'Dismiss', fn: 'dismissAbort()' };
+        } else if (!pu && !sd) {
+            variant = 'guide-info'; msg = '② Calibrate the camera in Setup — or use Our Carrier Slots (no camera needed).';
+            action = { label: 'Go to Setup', fn: "showTab('setup')" };
+        } else if (!pu || !sd) {
+            variant = 'guide-info'; msg = '② Finish camera calibration in Setup (' + (!pu ? 'pick-up' : 'set-down') + ' still needs it).';
+            action = { label: 'Go to Setup', fn: "showTab('setup')" };
+        } else if (d.state && d.state !== 'IDLE') {
+            variant = 'guide-warn'; msg = '⏳ ' + (d.status_msg || friendlyState(d.state));
+        } else {
+            variant = 'guide-ok'; msg = '✓ Ready — choose an operation in the Operate tab.';
+            action = { label: 'Go to Operate', fn: "showTab('operate')" };
+        }
+
+        box.className = variant;
+        txt.textContent = msg;
+        if (action) {
+            act.style.display = '';
+            act.textContent = action.label;
+            act.setAttribute('onclick', action.fn);
+        } else {
+            act.style.display = 'none';
+        }
+    }
+
+    // Dismiss the latched abort reason (now rendered inside the next-step banner).
+    function dismissAbort() {
+        fetch('/clear_abort', { method: 'POST' }).then(() => updateStatus()).catch(e => console.error(e));
+    }
+
+    function updateStatus() {
+        fetch('/status').then(r => r.json()).then(d => {
+            // Camera availability gate
+            cameraAvailable = d.camera_available !== false;
+            document.getElementById('no-camera-banner').style.display = cameraAvailable ? 'none' : 'flex';
+
+            // Feed-flip toggle button state
+            const flipBtn = document.getElementById('btn-flip');
+            if (flipBtn) {
+                const on = !!d.flip_feed;
+                flipBtn.classList.toggle('active', on);
+                flipBtn.textContent = on ? '⟲ Flip Feed 180° (ON)' : '⟲ Flip Feed 180°';
+            }
+
+            const homedOK = !!d.homed && !d.is_homing;
+            const pu = d.calibration ? d.calibration.pickup.ready  : false;
+            const sd = d.calibration ? d.calibration.setdown.ready : false;
+            const zReady = !!d.z_ready;
+
+            // Next-step guide + Setup attention badge (camera cal OR scoop Z heights incomplete)
+            renderNextStep(d, homedOK, pu, sd);
+            document.getElementById('badge-setup').style.display = (pu && sd && zReady) ? 'none' : 'inline-block';
+
+            // Camera-guided buttons: need camera + homed (+ the relevant calibration)
+            const camReason = !homedOK ? 'Home the robot first'
+                            : !cameraAvailable ? 'Camera not available' : null;
+            gate('btn-demo-follow', !cameraAvailable || !homedOK, camReason);
+            gate('btn-pickup', !cameraAvailable || !homedOK || !pu,
+                 camReason || (!pu ? 'Calibrate the pick-up profile in Setup first' : null));
+            gate('btn-setdown-target', !cameraAvailable || !homedOK || !sd,
+                 camReason || (!sd ? 'Calibrate the set-down profile in Setup first' : null));
+            // Our-slot buttons: need homed + measured scoop Z heights
+            const slotReason = !homedOK ? 'Home the robot first'
+                             : !zReady ? 'Set scoop Z heights in Setup first' : null;
+            ['our-pu-0', 'our-sd-0', 'our-pu-1', 'our-sd-1', 'our-pu-2', 'our-sd-2']
+                .forEach(id => gate(id, !homedOK || !zReady, slotReason));
+            // GOTO: need homed only
+            gate('btn-goto', !homedOK, 'Home the robot first');
+
+            // ── Status pills ──
+            // Arduino: SIM in simulation; otherwise OK (green) while the link is alive, LOST (red)
+            // once the heartbeat goes stale or the read thread dies.
+            const linkLost = d.link_alive === false && !d.simulated;
+            setPill(document.getElementById('s-conn'),
+                    d.simulated ? 'warn' : linkLost ? 'bad' : 'ok',
+                    d.simulated ? 'SIM' : linkLost ? 'LOST' : 'OK');
+
+            const homed = document.getElementById('s-homed');
+            if (d.is_homing)  setPill(homed, 'warn', 'HOMING…');
+            else if (d.homed) setPill(homed, 'ok',   'YES');
+            else              setPill(homed, 'bad',  'NO');
+
+            const cal = document.getElementById('s-cal');
+            if (pu && sd)      setPill(cal, 'ok',   'OK');
+            else if (pu || sd) setPill(cal, 'warn', '½');
+            else               setPill(cal, 'bad',  'NO');
+
+            const stateEl = document.getElementById('s-state');
+            setPill(stateEl, STATE_COLOR[d.state] || '', friendlyState(d.state));
+            stateEl.title = 'State machine: ' + d.state;
+
+            // Position shown in mm (matching Z and GOTO); single mm/step source from the server.
+            const MM_PER_STEP = d.mm_per_step || 1.005;
+            const sx = document.getElementById('s-x'), sy = document.getElementById('s-y');
+            sx.textContent = Math.round(d.x_pos * MM_PER_STEP); sx.title = d.x_pos + ' steps';
+            sy.textContent = Math.round(d.y_pos * MM_PER_STEP); sy.title = d.y_pos + ' steps';
+            document.getElementById('s-z').textContent = d.z_pos_mm !== undefined ? d.z_pos_mm.toFixed(1) : '-';
+
+            // Seed GOTO fields from the live position (unfocused) so the single GO only moves the
+            // axis you change.
+            const seedGoto = (id, v) => { const el = document.getElementById(id);
+                if (el && document.activeElement !== el) el.value = Math.round(v); };
+            seedGoto('goto-x', d.x_pos * MM_PER_STEP);
+            seedGoto('goto-y', d.y_pos * MM_PER_STEP);
+            seedGoto('goto-z', d.z_pos_mm || 0);
+
+            // Tuning settings: the input itself shows the live value (seeded when unfocused),
+            // so the only non-redundant info is a status dot — ✓ saved, ● unsaved/pending.
+            if (d.accel !== undefined) savedDot('accel-val', 'st-accel', d.accel, d.accel_confirmed === false);
+            if (d.speed !== undefined) savedDot('speed-val', 'st-speed', d.speed, d.speed_confirmed === false);
+            if (d.settle_time_s !== undefined) savedDot('settle-val', 'st-settle', d.settle_time_s);
+            if (d.z_mm_per_s !== undefined) savedDot('zspeed-val', 'st-zspeed', d.z_mm_per_s);
+
+            setPill(document.getElementById('s-motion'), d.busy ? 'warn' : '', d.busy ? 'MOVING' : 'idle');
+            setPill(document.getElementById('s-grip'), d.grip_engaged ? 'ok' : '', d.grip_engaged ? 'HOLDING' : 'EMPTY');
+            setPill(document.getElementById('s-loaded'), d.loaded_motion ? 'warn' : '', d.loaded_motion ? 'GENTLE (loaded)' : 'NORMAL');
+
+            const lim = d.limits || {};
+            const limEl = document.getElementById('s-limits');
+            if (limEl) {
+                limEl.innerHTML = [['X-','x_min'],['X+','x_max'],['Y-','y_min'],['Y+','y_max'],['Zt','z_top']]
+                    .map(([lbl, k]) => `<span class="lim ${lim[k] ? 'on' : ''}">${lbl}</span>`).join('');
+            }
+
+            const at = d.align_tol || {x_px: 50, z_px: 50};
+            const xv = d.x_err !== null ? d.x_err : '--';
+            const zv = d.z_err !== null ? d.z_err : '--';
+            const xe = document.getElementById('s-xerr');
+            const ze = document.getElementById('s-zerr');
+            xe.textContent = xv;
+            ze.textContent = zv;
+            cls(xe, tolClass(xv, at.x_px));
+            cls(ze, tolClass(zv, at.z_px));
+            document.getElementById('s-xerr-ref').textContent = '±' + at.x_px;
+            document.getElementById('s-zerr-ref').textContent = '±' + at.z_px;
+
+            // Orientation (roll / pitch / yaw)
+            const rollEl    = document.getElementById('s-roll');
+            const pitchEl   = document.getElementById('s-pitch');
+            const yawEl     = document.getElementById('s-yaw');
+            const orientWarn = document.getElementById('orient-warn');
+            const tol = d.orient_tol    || {roll: 10,  pitch: 10,  yaw: 10};
+            const tgt = d.orient_target || {roll: 0.0, pitch: 0.0, yaw: 0.0};
+            document.getElementById('s-roll-ref').textContent  = `ref:${tgt.roll} ±${tol.roll}°`;
+            document.getElementById('s-pitch-ref').textContent = `ref:${tgt.pitch} ±${tol.pitch}°`;
+            document.getElementById('s-yaw-ref').textContent   = `ref:${tgt.yaw} ±${tol.yaw}°`;
+            if (d.orientation) {
+                const o = d.orientation;
+                rollEl.textContent  = o.roll.toFixed(1);
+                pitchEl.textContent = o.pitch.toFixed(1);
+                yawEl.textContent   = o.yaw.toFixed(1);
+                cls(rollEl,  Math.abs(o.roll  - tgt.roll)  <= tol.roll  ? 'ok' : 'bad');
+                cls(pitchEl, Math.abs(o.pitch - tgt.pitch) <= tol.pitch ? 'ok' : 'bad');
+                cls(yawEl,   Math.abs(o.yaw   - tgt.yaw)   <= tol.yaw   ? 'ok' : 'bad');
+                const bad = [];
+                if (Math.abs(o.roll  - tgt.roll)  > tol.roll)  bad.push('Roll');
+                if (Math.abs(o.pitch - tgt.pitch) > tol.pitch) bad.push('Pitch');
+                if (Math.abs(o.yaw   - tgt.yaw)   > tol.yaw)   bad.push('Yaw');
+                if (bad.length) {
+                    orientWarn.textContent = '⚠ ORIENTATION BLOCKED: ' + bad.join(', ');
+                    orientWarn.style.display = 'block';
+                } else {
+                    orientWarn.style.display = 'none';
+                }
+            } else {
+                rollEl.textContent  = '--';
+                pitchEl.textContent = '--';
+                yawEl.textContent   = '--';
+                cls(rollEl, ''); cls(pitchEl, ''); cls(yawEl, '');
+                orientWarn.style.display = 'none';
+            }
+
+            // Status message
+            document.getElementById('s-msg').textContent = d.status_msg || '';
+
+            // Step-mode approval bar + toggle sync
+            const stepToggle = document.getElementById('step-mode-toggle');
+            if (stepToggle) stepToggle.checked = !!d.step_mode;
+            const stepBar = document.getElementById('step-bar');
+            if (d.awaiting_approval && d.pending_step) {
+                stepBar.style.display = 'flex';
+                document.getElementById('step-desc').textContent = d.pending_step;
+            } else {
+                stepBar.style.display = 'none';
+            }
+
+            // Per-profile calibration status
+            if (d.calibration) {
+                ['pickup', 'setdown'].forEach(name => {
+                    const el = document.getElementById('cal-status-' + name);
+                    const p = d.calibration[name];
+                    if (name === 'setdown') {
+                        // Set-down: ① over-slot pose makes it ready; ② seated pose is an optional guard.
+                        if (p.ready) {
+                            const seated = p.seated_ready ? `seated:(${p.seated_x}, ${p.seated_y})` : 'seated pose not set (guard → travel limit)';
+                            el.textContent = `✓ over-slot:(${p.crosshair_x}, ${p.crosshair_y}) W:${p.target_width_px}px · ${seated}`;
+                            el.className = p.seated_ready ? 'cal-status ok' : 'cal-status warn';
+                        } else {
+                            el.textContent = '✗ NOT CALIBRATED — capture the over-slot pose';
+                            el.className = 'cal-status bad';
+                        }
+                        return;
+                    }
+                    const xzSet = p.crosshair_x !== null;
+                    const wSet  = p.target_width_px !== null;
+                    if (p.ready) {
+                        el.textContent = `✓ aim:(${p.crosshair_x}, ${p.crosshair_y})  engage W:${p.target_width_px}px`;
+                        el.className = 'cal-status ok';
+                    } else if (xzSet || wSet) {
+                        el.textContent = `⚠ ${xzSet ? 'aim set' : 'aim missing'}  ${wSet ? 'W:' + p.target_width_px + 'px' : 'engage depth missing'}`;
+                        el.className = 'cal-status warn';
+                    } else {
+                        el.textContent = '✗ NOT CALIBRATED';
+                        el.className = 'cal-status bad';
+                    }
+                });
+            }
+
+            // Scoop Z heights status + input seeding
+            if (d.z_heights) {
+                const z = d.z_heights;
+                const seed = (id, v) => { const el = document.getElementById(id);
+                    if (el && document.activeElement !== el && v !== null && v !== undefined && el.value === '') el.value = v; };
+                seed('z-handle', z.handle_depth_ms); seed('z-lift', z.clear_lift_ms);
+                const zs = document.getElementById('z-status');
+                if (d.z_ready) {
+                    zs.textContent = `✓ handle:${z.handle_depth_ms}ms  lift:${z.clear_lift_ms}ms`;
+                    zs.className = 'cal-status ok';
+                } else {
+                    zs.textContent = '✗ NOT SET — slot operations disabled';
+                    zs.className = 'cal-status bad';
+                }
+            }
+
+            // Seed alignment-tolerance inputs (unfocused) from the stored per-profile values
+            if (d.tolerances) {
+                ['pickup', 'setdown'].forEach(pf => {
+                    const t = d.tolerances[pf]; if (!t) return;
+                    _TOL_KEYS.forEach(k => { const el = document.getElementById('tol-' + pf + '-' + k);
+                        if (el && document.activeElement !== el) el.value = t[k]; });
+                });
+            }
+
+            // Custom marker labels
+            renderMarkerLabels(d.marker_labels);
+        }).catch(() => {});
+    }
+
+    // Help overlay
+    function openHelp()  { document.getElementById('help-overlay').style.display = 'block'; }
+    function closeHelp() { document.getElementById('help-overlay').style.display = 'none'; }
+
+    // Vision calibration (profile = 'pickup'|'setdown', kind = 'xz'|'width')
+    function calibrate(profile, kind) {
+        const marker_id = parseInt(document.getElementById('cal-' + profile + '-id').value);
+        fetch('/calibrate/' + profile + '/' + kind, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({marker_id})
+        }).then(r => r.json())
+          .then(d => { console.log(d); if (d.error) alert(profile + ' ' + kind + ': ' + d.error); })
+          .catch(e => console.error(e));
+    }
+
+    function setZHeights() {
+        const body = {};
+        const grab = (id, key) => { const v = document.getElementById(id).value;
+            if (v !== '') body[key] = parseInt(v); };
+        grab('z-handle',  'handle_depth_ms');
+        grab('z-lift',    'clear_lift_ms');
+        return fetch('/calibrate/z_heights', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    // ── Scoop Z-height measure wizard ──────────────────────────────────────────
+    // Z is time-based (no encoder), so each height is just elapsed actuator run-time.
+    // The wizard starts a long Z pulse, runs a live stopwatch, and on CAPTURE sends a
+    // stop (E) — the captured ms is exactly what the operations later replay as `Z <ms>`.
+    const ZM = {
+        handle: { title: '① Handle Depth', field: 'z-handle', key: 'handle_depth_ms', dir: 1,
+            prep: 'First retract the scoop fully up. Click <b>Retract to top</b> and wait until it stops.',
+            prepBtn: 'Retract to top ▲', prepDir: -1,
+            measure: 'Click <b>START</b> — the scoop lowers from the top. Watch it, and click <b>CAPTURE</b> the instant it reaches the battery-handle height.' },
+        lift:   { title: '② Clear-the-Slot Lift', field: 'z-lift', key: 'clear_lift_ms', dir: -1, needHandle: true,
+            prep: 'Position the scoop at handle height with a battery cradled on it: click <b>Go to handle</b>, wait, then place a battery so the scoop is holding it.',
+            prepBtn: 'Go to handle ▼', prepDir: 'handle',
+            measure: 'Click <b>START</b> — the scoop lifts. Click <b>CAPTURE</b> the moment the battery is fully clear of the slot bracing.' },
+    };
+    const ZM_MAX_PULSE = 55000;   // ms — full-travel guard (actuator can take up to ~50s); user captures well before this
+    let zmCur = null, zmT0 = 0, zmTimer = null, zmCaptured = null;
+
+    function zPulse(dir, ms) {
+        return fetch('/jog', { method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({axis: 'z', direction: dir, ms: ms}) });
+    }
+    function zStop() { return fetch('/emergency_stop'); }
+
+    function measureStart(which) {
+        const c = ZM[which];
+        if (c.needHandle && !parseInt(document.getElementById('z-handle').value)) {
+            alert('Measure ① Handle depth first — ② needs it to position the scoop.');
+            return;
+        }
+        zmCur = c; zmCaptured = null;
+        document.getElementById('zm-title').textContent = 'Measure ' + c.title;
+        document.getElementById('zmeasure-overlay').style.display = 'block';
+        zmRenderPrep();
+    }
+
+    function zmSetTimer(ms) {
+        document.getElementById('zm-timer').textContent = (ms / 1000).toFixed(1) + ' s';
+    }
+    function zmNote(html) {
+        const n = document.getElementById('zm-note');
+        if (html) { n.innerHTML = html; n.style.display = 'block'; } else { n.style.display = 'none'; }
+    }
+
+    function zmRenderPrep() {
+        const c = zmCur;
+        document.getElementById('zm-desc').innerHTML = c.prep;
+        zmSetTimer(0); zmNote('Keep the path clear — the scoop will move when you press a button.');
+        const ms = (c.prepDir === 'handle') ? (parseInt(document.getElementById('z-handle').value) || 0) : ZM_MAX_PULSE;
+        const dir = (c.prepDir === 'handle') ? 1 : c.prepDir;
+        document.getElementById('zm-buttons').innerHTML =
+            `<button class="zm-prep" onclick="zStop().then(()=>zPulse(${dir}, ${ms}))">${c.prepBtn}</button>` +
+            `<button class="zm-go" onclick="zmRenderMeasure()">Ready — measure ▶</button>`;
+    }
+
+    function zmRenderMeasure() {
+        zStop();   // make sure nothing is mid-pulse before we time a fresh one
+        document.getElementById('zm-desc').innerHTML = zmCur.measure;
+        zmSetTimer(0); zmNote('');
+        document.getElementById('zm-buttons').innerHTML =
+            `<button class="zm-go" onclick="zmBegin()">START ${zmCur.dir > 0 ? '▼ lower' : '▲ lift'}</button>`;
+    }
+
+    function zmBegin() {
+        zStop().then(() => {
+            zPulse(zmCur.dir, ZM_MAX_PULSE);
+            zmT0 = performance.now();
+            zmTimer = setInterval(() => zmSetTimer(performance.now() - zmT0), 50);
+            document.getElementById('zm-buttons').innerHTML =
+                `<button class="zm-cap" onclick="zmCapture()">CAPTURE ⏱</button>`;
+        });
+    }
+
+    function zmCapture() {
+        zStop();
+        if (zmTimer) { clearInterval(zmTimer); zmTimer = null; }
+        zmCaptured = Math.round(performance.now() - zmT0);
+        zmSetTimer(zmCaptured);
+        document.getElementById('zm-desc').innerHTML =
+            `Captured <b>${zmCaptured} ms</b> for ${zmCur.title}.`;
+        zmNote('Tip: retract the scoop back to the top before the next step.');
+        document.getElementById('zm-buttons').innerHTML =
+            `<button class="zm-prep" onclick="zStop().then(()=>zPulse(-1, ${ZM_MAX_PULSE}))">Retract to top ▲</button>` +
+            `<button class="zm-go" onclick="zmRenderPrep()">Redo</button>` +
+            `<button class="zm-use" onclick="zmUse()">Use ${zmCaptured} ms ✓</button>`;
+    }
+
+    function zmUse() {
+        document.getElementById(zmCur.field).value = zmCaptured;
+        setZHeights();
+        if (zmTimer) { clearInterval(zmTimer); zmTimer = null; }
+        // Just save & close — no auto-motion. Use the "Retract to top" button (or HOME)
+        // to park the scoop when you're done.
+        document.getElementById('zmeasure-overlay').style.display = 'none';
+    }
+
+    function measureCancel() {
+        if (zmTimer) { clearInterval(zmTimer); zmTimer = null; }
+        zStop();   // safety: stop any motion on exit
+        document.getElementById('zmeasure-overlay').style.display = 'none';
+    }
+
+    const _TOL_KEYS = ['x_px', 'z_px', 'width_px', 'roll_deg', 'pitch_deg', 'yaw_deg'];
+    function setTol(profile) {
+        const body = {};
+        _TOL_KEYS.forEach(k => { const v = document.getElementById('tol-' + profile + '-' + k).value;
+            if (v !== '') body[k] = parseFloat(v); });
+        fetch('/calibrate/' + profile + '/tolerances', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+    function resetTol(profile) {
+        fetch('/calibrate/' + profile + '/tolerances/reset', { method: 'POST' })
+            .then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    function setMarkerLabel() {
+        const id = parseInt(document.getElementById('mlabel-id').value);
+        const label = document.getElementById('mlabel-text').value;
+        fetch('/calibrate/marker_label', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id, label})
+        }).then(r => r.json()).then(d => { console.log(d); document.getElementById('mlabel-text').value = ''; })
+          .catch(e => console.error(e));
+    }
+
+    function renderMarkerLabels(labels) {
+        const box = document.getElementById('mlabel-list');
+        const entries = Object.entries(labels || {});
+        if (!entries.length) { box.innerHTML = '<span style="font-size:10px;color:#444;">No custom labels</span>'; return; }
+        box.innerHTML = entries.map(([id, lbl]) =>
+            `<div class="mlabel-row"><span style="flex:1;">ID ${id}: <b style="color:#aaa;">${lbl}</b></span>` +
+            `<button class="btn-set" onclick="clearMarkerLabel(${id})">✕</button></div>`).join('');
+    }
+
+    function clearMarkerLabel(id) {
+        fetch('/calibrate/marker_label', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id, label: ''})
+        }).then(r => r.json()).then(d => console.log(d)).catch(e => console.error(e));
+    }
+
+    function targetSetDown() {
+        const id = parseInt(document.getElementById('slot-id').value) || 0;
+        cmd('/target_slot/set_down/' + id);
+    }
+
+    // ── Debug log console ──────────────────────────────────────────────────
+    let dbgLastId = 0;          // highest entry id rendered so far
+
+    function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function dbgRowHtml(e) {
+        const t = new Date(e.t * 1000).toLocaleTimeString();
+        const errs = (e.x_err !== null || e.z_err !== null)
+            ? `  <span style="color:#777;">(x_err=${e.x_err}, z_err=${e.z_err})</span>` : '';
+        const cnt = e.count > 1 ? `  <span class="dbg-count">×${e.count}</span>` : '';
+        return `<span class="dbg-time">${t}</span>  ` +
+               `<span class="dbg-state">[${esc(e.state)}]</span>  ${esc(e.msg)}${errs}${cnt}`;
+    }
+
+    function dbgRowClass(e) {
+        const m = e.msg || '';
+        if (m.startsWith('ABORT') || m.includes('WARNING') || m.includes('Failed')) return 'dbg-row dbg-abort';
+        if (e.count >= 5) return 'dbg-row dbg-stall';   // same line repeating → likely a stuck loop
+        return 'dbg-row';
+    }
+
+    function pollDebugLog() {
+        // Refetch from one before our last id so the most recent row (whose ×N count keeps
+        // climbing while stalled) is re-sent and updated in place, not just brand-new rows.
+        const since = dbgLastId > 0 ? dbgLastId - 1 : '';
+        fetch('/debug_log' + (since !== '' ? '?since=' + since : ''))
+            .then(r => r.json()).then(d => {
+                const box = document.getElementById('dbg-console');
+                if (!box) return;
+                const empty = box.querySelector('.dbg-empty');
+                if (empty) empty.remove();
+                (d.logs || []).forEach(e => {
+                    let row = box.querySelector('[data-id="' + e.id + '"]');
+                    if (!row) {
+                        row = document.createElement('div');
+                        row.setAttribute('data-id', e.id);
+                        box.appendChild(row);
+                    }
+                    row.className = dbgRowClass(e);
+                    row.innerHTML = dbgRowHtml(e);
+                    if (e.id > dbgLastId) dbgLastId = e.id;
+                });
+                while (box.children.length > 300) box.removeChild(box.firstChild);
+                if (document.getElementById('dbg-autoscroll').checked) box.scrollTop = box.scrollHeight;
+            }).catch(() => {});
+    }
+
+    function clearDebugLog() {
+        fetch('/debug_log/clear', {method: 'POST'}).then(() => {
+            dbgLastId = 0;
+            document.getElementById('dbg-console').innerHTML =
+                '<span class="dbg-empty">Log cleared. New activity will appear here.</span>';
+        }).catch(() => {});
+    }
+
+    function copyDebugLog() {
+        const box = document.getElementById('dbg-console');
+        navigator.clipboard.writeText(box.innerText).catch(() => {});
+    }
+
+    // Tuck each card's explanatory blurb behind a ? chip on its heading. Keeps the
+    // sidebar uncluttered; the same ? toggles it back inline, and the full prose still
+    // lives in HELP. Applied generically so every card-sub behaves identically.
+    document.querySelectorAll('.section > h3').forEach(h => {
+        const sub = h.nextElementSibling;
+        if (!sub || !sub.classList.contains('card-sub')) return;
+        sub.classList.add('collapsed');
+        const chip = document.createElement('span');
+        chip.className = 'help-chip';
+        chip.textContent = '?';
+        chip.title = 'Show / hide the explanation for this card';
+        chip.onclick = () => {
+            const collapsed = sub.classList.toggle('collapsed');
+            chip.classList.toggle('open', !collapsed);
+        };
+        h.appendChild(chip);
+    });
+
+    // Restore last active tab (default Operate)
+    let _startTab = 'operate';
+    try { _startTab = localStorage.getItem('activeTab') || 'operate'; } catch (e) {}
+    showTab(_startTab);
+
+    // Load the live stream with a per-session cache-buster so the browser can never
+    // reuse a cached /video_feed response from a previous run.
+    document.getElementById('feed').src = '/video_feed?ts=' + Date.now();
+
+    setInterval(updateStatus, 1000);
+    updateStatus();
+
+    setInterval(pollDebugLog, 1000);
+    pollDebugLog();
+</script>
+</body>
+</html>

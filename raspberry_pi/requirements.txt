@@ -1,0 +1,6 @@
+flask
+opencv-contrib-python
+numpy
+pyserial
+# picamera2 is provided by the Raspberry Pi OS system packages
+# (create the venv with --system-site-packages); it is not installed via pip.

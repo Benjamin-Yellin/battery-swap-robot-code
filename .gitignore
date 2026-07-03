@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Runtime artifacts (generated on the robot, not source)
+calibration.json
+logs/
+*.log
+
+# PlatformIO / build
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
